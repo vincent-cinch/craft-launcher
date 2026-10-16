@@ -151,12 +151,6 @@ impl WebBackend {
                 events.borrow_mut().push(Event::Latest { app: app.id.to_string(), latest, from: Origin::GitHub });
                 ctx.request_repaint();
             }
-            if let Ok(LatestRelease::Found(r)) = latest(catalog::LAUNCHER_REPO, false).await
-                && let (Some(l), Some(c)) = (r.version.as_ref(), version::parse(env!("CARGO_PKG_VERSION")))
-                && version::is_newer(l, &c)
-            {
-                events.borrow_mut().push(Event::LauncherUpdate(r));
-            }
             let at = (js_sys::Date::now() / 1000.0) as i64;
             events.borrow_mut().push(Event::CheckFinished { at, source: Source::GitHubApi, rate_limited_until: limited });
             *checking.borrow_mut() = false;

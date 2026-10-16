@@ -5,7 +5,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
-use artcraft_launcher_core::catalog::{LAUNCHER, LAUNCHER_ID};
 use artcraft_launcher_core::feed::{Feed, FeedAnswer};
 use artcraft_launcher_core::platform::{Arch, Os, Platform, pick_asset};
 use artcraft_launcher_core::protocol::{
@@ -21,9 +20,6 @@ use crate::manifest::Manifest;
 use crate::paths::Paths;
 use crate::source::{GitHubSource, ReleaseSource};
 
-/// The longest the launcher's own update waits for other installs to end before it gives up
-/// (it can be cancelled sooner).
-const RESTART_WAIT: Duration = Duration::from_secs(10 * 60);
 /// Automatic checks closer together than this reuse the last answers: it stops a burst of
 /// requests (refresh, timers) from repeating work.
 const FRESH_FOR: i64 = 4 * 60;
@@ -38,16 +34,12 @@ struct Shared {
     latest: Mutex<HashMap<String, Release>>,
     installed: Mutex<HashMap<String, Installed>>,
     jobs: Mutex<HashMap<String, Arc<Stop>>>,
-    /// The launcher is replacing itself and will restart: no new job starts.
-    restarting: AtomicBool,
     manifest: Mutex<Manifest>,
     options: Mutex<BackendOptions>,
     checking: AtomicBool,
     /// A detection pass is running; another request waits for the next one.
     detecting: AtomicBool,
     last_check: Mutex<Option<i64>>,
-    /// The newer ArtCraft Launcher release, once a check has found one.
-    launcher_release: Mutex<Option<Release>>,
 }
 
 impl Shared {
@@ -63,8 +55,6 @@ pub struct NativeBackend {
     http: Option<Http>,
     source: Option<Arc<dyn ReleaseSource>>,
     platform: Option<Platform>,
-    /// How this launcher is installed, when it can replace itself.
-    self_install: Option<crate::self_update::Install>,
 }
 
 impl NativeBackend {
@@ -90,15 +80,13 @@ impl NativeBackend {
             latest: Mutex::new(HashMap::new()),
             installed: Mutex::new(HashMap::new()),
             jobs: Mutex::new(HashMap::new()),
-            restarting: AtomicBool::new(false),
             manifest: Mutex::new(Manifest::load(&paths.manifest())),
             options: Mutex::new(BackendOptions::default()),
             checking: AtomicBool::new(false),
             detecting: AtomicBool::new(false),
-            launcher_release: Mutex::new(None),
             last_check: Mutex::new(None),
         });
-        let backend = Self { shared, paths, http, source, platform: native_platform(), self_install: crate::self_update::current() };
+        let backend = Self { shared, paths, http, source, platform: native_platform() };
         backend.replay_cache();
         backend.detect_all();
         backend
@@ -185,7 +173,8 @@ impl NativeBackend {
                 shared.emit(Event::Notices { announcements: f.announcements.clone(), alerts: f.alerts.clone() });
             }
             let now = crate::now();
-            let queue = Mutex::new(SUITE.iter().chain(std::iter::once(&LAUNCHER)).collect::<Vec<&CraftApp>>());
+            // The launcher's own repo is never asked: self-update is off in this build.
+            let queue = Mutex::new(SUITE.iter().collect::<Vec<&CraftApp>>());
             let sources = Mutex::new(Vec::new());
             std::thread::scope(|scope| {
                 for _ in 0..WORKERS {
@@ -198,18 +187,6 @@ impl NativeBackend {
                             };
                             if let Some(used) = used {
                                 sources.lock().unwrap_or_else(PoisonError::into_inner).push(used);
-                            }
-                            if app.id == LAUNCHER_ID {
-                                // Is there a newer ArtCraft Launcher?
-                                if let Some(LatestRelease::Found(r)) = latest
-                                    && let (Some(newest), Some(current)) = (r.version.as_ref(), crate::self_update::current_version())
-                                    && version::is_newer(newest, &current)
-                                    && !crate::self_update::just_updated_to(&paths, &r)
-                                {
-                                    *shared.launcher_release.lock().unwrap_or_else(PoisonError::into_inner) = Some(r.clone());
-                                    shared.emit(Event::LauncherUpdate(r));
-                                }
-                                continue;
                             }
                             let Some(latest) = latest else { continue };
                             if let LatestRelease::Found(r) = &latest {
@@ -248,21 +225,12 @@ impl NativeBackend {
         let Some(app) = CraftApp::by_id(app_id) else { return };
         log::info!("{}: starting {} job", app.name, if uninstall { "uninstall" } else { "install/update" });
         let stop = Arc::new(Stop::default());
-        let restarting = {
+        {
             let mut jobs = self.shared.jobs.lock().unwrap_or_else(PoisonError::into_inner);
             if jobs.contains_key(app.id) {
                 return;
             }
-            let restarting = self.shared.restarting.load(Ordering::SeqCst);
-            if !restarting {
-                jobs.insert(app.id.to_string(), stop.clone());
-            }
-            restarting
-        };
-        if restarting {
-            let result = Err("ArtCraft Launcher is restarting to finish its update. Try again once it's back.".into());
-            self.shared.emit(Event::JobFinished { app: app.id.to_string(), result });
-            return;
+            jobs.insert(app.id.to_string(), stop.clone());
         }
         let shared = self.shared.clone();
         let paths = self.paths.clone();
@@ -320,55 +288,6 @@ impl NativeBackend {
             shared.emit(Event::Detected { app: app.id.to_string(), installed: found });
             shared.jobs.lock().unwrap_or_else(PoisonError::into_inner).remove(app.id);
             shared.emit(Event::JobFinished { app: app.id.to_string(), result });
-        });
-    }
-
-    /// Downloads the newer launcher, puts it in place and asks the UI to quit so it can start.
-    fn update_launcher(&self) {
-        let id = LAUNCHER_ID.to_string();
-        let (Some(install), Some(platform)) = (self.self_install.clone(), self.platform) else {
-            self.shared.emit(Event::JobFinished {
-                app: id,
-                result: Err("this copy of ArtCraft Launcher can't update itself; download the new version instead".into()),
-            });
-            return;
-        };
-        let Some(release) = self.shared.launcher_release.lock().unwrap_or_else(PoisonError::into_inner).clone() else { return };
-        let stop = Arc::new(Stop::default());
-        {
-            let mut jobs = self.shared.jobs.lock().unwrap_or_else(PoisonError::into_inner);
-            if jobs.contains_key(&id) {
-                return;
-            }
-            jobs.insert(id.clone(), stop.clone());
-        }
-        let (shared, paths, http) = (self.shared.clone(), self.paths.clone(), self.http.clone());
-        std::thread::spawn(move || {
-            let mut last_emit = Instant::now() - Duration::from_secs(1);
-            let mut phase = |p: JobPhase| {
-                if matches!(p, JobPhase::Downloading { done, total } if done != total && done != 0) && last_emit.elapsed() < Duration::from_millis(50)
-                {
-                    return;
-                }
-                last_emit = Instant::now();
-                shared.emit(Event::Progress { app: LAUNCHER_ID.to_string(), phase: p });
-            };
-            let last = || {
-                let mut waiting = || shared.emit(Event::Progress { app: LAUNCHER_ID.to_string(), phase: JobPhase::Waiting });
-                claim_restart(&shared.jobs, &shared.restarting, &stop, RESTART_WAIT, &mut waiting)
-            };
-            let result = match http.as_ref() {
-                Some(http) => crate::self_update::update(&install, &release, platform, http, &paths, &stop, &mut phase, &last),
-                None => Err("secure connections aren't available on this system".into()),
-            };
-            shared.jobs.lock().unwrap_or_else(PoisonError::into_inner).remove(LAUNCHER_ID);
-            match result {
-                Ok(()) => shared.emit(Event::LauncherRestarting),
-                Err(e) => {
-                    shared.restarting.store(false, Ordering::SeqCst);
-                    shared.emit(Event::JobFinished { app: LAUNCHER_ID.to_string(), result: Err(e) });
-                }
-            }
         });
     }
 
@@ -452,56 +371,6 @@ fn landed_despite(error: &str, before: Option<&Installed>, after: Option<&Instal
 fn landed(before: Option<&Installed>, after: Option<&Installed>, latest: &version::Version) -> bool {
     let has_latest = |copy: Option<&Installed>| copy.and_then(|i| i.version.as_ref()).is_some_and(|v| !version::is_update(latest, v));
     has_latest(after) && !has_latest(before)
-}
-
-/// For the launcher's own update, before it replaces itself: waits (saying so through `waiting`)
-/// until every other job has ended, then sets `restarting`, which keeps new jobs from starting.
-/// The restart that follows would otherwise cut their installs short. The user can cancel the
-/// wait (`stop`); after `limit` it gives up and names the apps still busy, since one may be
-/// stuck behind a password prompt nobody has answered.
-fn claim_restart(
-    jobs: &Mutex<HashMap<String, Arc<Stop>>>,
-    restarting: &AtomicBool,
-    stop: &Stop,
-    limit: Duration,
-    waiting: &mut dyn FnMut(),
-) -> Result<(), String> {
-    let started = Instant::now();
-    let mut told = false;
-    loop {
-        stop.check()?;
-        let busy: Vec<&'static str> = {
-            let jobs = jobs.lock().unwrap_or_else(PoisonError::into_inner);
-            let busy = jobs.keys().filter(|id| *id != LAUNCHER_ID).map(|id| CraftApp::by_id(id).map_or("another app", |a| a.name)).collect();
-            if jobs.keys().all(|id| id == LAUNCHER_ID) {
-                restarting.store(true, Ordering::SeqCst);
-                return Ok(());
-            }
-            busy
-        };
-        if started.elapsed() >= limit {
-            return Err(restart_blocked(busy));
-        }
-        if !told {
-            told = true;
-            waiting();
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
-}
-
-/// Why the launcher didn't restart: `busy` apps were still installing, and what to do about it.
-fn restart_blocked(mut busy: Vec<&str>) -> String {
-    busy.sort_unstable();
-    busy.dedup();
-    let (names, were, them) = match busy.as_slice() {
-        [one] => ((*one).to_string(), "was", "it"),
-        _ => (busy.join(", "), "were", "them"),
-    };
-    format!(
-        "ArtCraft Launcher didn't restart to update: {names} {were} still installing. Answer or close any password prompt, \
-         let {them} finish or cancel {them}, then press Update and restart again."
-    )
 }
 
 /// The file an install of `app` would download now: same format as the installed copy, else
@@ -677,7 +546,11 @@ impl Backend for NativeBackend {
                     }
                 }
             }
-            Command::UpdateLauncher => self.update_launcher(),
+            // Self-update is off in this build: new launcher versions are handed out by hand.
+            Command::UpdateLauncher => self.shared.emit(Event::JobFinished {
+                app: artcraft_launcher_core::catalog::LAUNCHER_ID.to_string(),
+                result: Err("this build of ArtCraft Launcher doesn't update itself".into()),
+            }),
             Command::Configure(options) => {
                 let changed_pre = {
                     let mut o = self.shared.options.lock().unwrap_or_else(PoisonError::into_inner);
@@ -707,7 +580,7 @@ impl Backend for NativeBackend {
             Some(Os::Windows) => "Show in Explorer",
             _ => "Show in Files",
         };
-        Capabilities { manage_apps: true, reveal_label, self_update: self.self_install.is_some() }
+        Capabilities { manage_apps: true, reveal_label, self_update: false }
     }
 
     fn platform(&self) -> Option<Platform> {
@@ -719,19 +592,8 @@ impl Backend for NativeBackend {
     }
 }
 
-/// The launcher's own download for this machine, for "a new launcher is available".
-pub fn launcher_download(release: &Release, platform: Platform) -> Option<String> {
-    let kinds: &[artcraft_launcher_core::PackageKind] = match platform.os {
-        Os::Linux => &[artcraft_launcher_core::PackageKind::AppImage, artcraft_launcher_core::PackageKind::Deb],
-        _ => platform.default_kinds(),
-    };
-    pick_asset(release, &[LAUNCHER_ID], platform, kinds).map(|(a, _)| a.url.clone())
-}
-
 #[cfg(test)]
 mod tests {
-    use std::sync::mpsc;
-
     use artcraft_launcher_core::InstallSource;
 
     use artcraft_launcher_core::protocol::LatestRelease;
@@ -764,13 +626,11 @@ mod tests {
             latest: Mutex::new(HashMap::new()),
             installed: Mutex::new(HashMap::new()),
             jobs: Mutex::new(HashMap::new()),
-            restarting: AtomicBool::new(false),
             manifest: Mutex::new(Manifest::default()),
             options: Mutex::new(BackendOptions::default()),
             checking: AtomicBool::new(false),
             detecting: AtomicBool::new(false),
             last_check: Mutex::new(None),
-            launcher_release: Mutex::new(None),
         }
     }
 
@@ -849,7 +709,7 @@ mod tests {
         let shared = shared();
         shared.latest.lock().unwrap().insert(APP.to_string(), release("0.5.0"));
         let shared = Arc::new(shared);
-        NativeBackend { shared, paths: Paths::under(root), http: None, source, platform: Some(platform), self_install: None }
+        NativeBackend { shared, paths: Paths::under(root), http: None, source, platform: Some(platform) }
     }
 
     /// Reports again, and returns what the UI was last told about a kept download.
@@ -975,61 +835,25 @@ mod tests {
     }
 
     #[test]
-    fn the_launcher_gives_up_waiting_and_names_the_busy_apps() {
-        let jobs = Mutex::new(HashMap::new());
-        for id in [LAUNCHER_ID, "photocraft"] {
-            jobs.lock().unwrap().insert(id.to_string(), Arc::new(Stop::default()));
+    fn self_update_is_off_and_the_launcher_repo_is_never_asked() {
+        let Some(platform) = native_platform() else { return };
+        let dir = tempfile::tempdir().unwrap();
+        let github = Arc::new(RecordingGitHub::default());
+        let mut backend = backend(dir.path(), platform, Some(github.clone()));
+        assert!(!backend.capabilities().self_update);
+        backend.send(Command::UpdateLauncher);
+        assert!(backend.poll().iter().any(|e| matches!(e, Event::JobFinished { result: Err(_), .. })));
+        backend.http = Some(Http::new().unwrap());
+        backend.send(Command::CheckForUpdates { force: true });
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while !backend.poll().iter().any(|e| matches!(e, Event::CheckFinished { .. })) {
+            assert!(Instant::now() < deadline, "the check never finished");
+            std::thread::sleep(Duration::from_millis(10));
         }
-        let restarting = AtomicBool::new(false);
-        let error = claim_restart(&jobs, &restarting, &Stop::default(), Duration::from_millis(300), &mut || {}).unwrap_err();
-        assert!(error.contains("PhotoCraft was still installing") && error.contains("cancel it"), "{error}");
-        assert!(!restarting.load(Ordering::SeqCst));
-        assert!(restart_blocked(vec!["WordCraft", "FilmCraft"]).contains("FilmCraft, WordCraft were still installing"));
-    }
-
-    #[test]
-    fn the_launcher_restarts_only_once_every_other_job_has_ended() {
-        let jobs = Mutex::new(HashMap::new());
-        for id in [LAUNCHER_ID, "photocraft", "filmcraft"] {
-            jobs.lock().unwrap().insert(id.to_string(), Arc::new(Stop::default()));
-        }
-        let restarting = AtomicBool::new(false);
-        let stop = Stop::default();
-        let (waiting, waits) = mpsc::channel();
-        std::thread::scope(|scope| {
-            let (jobs, restarting, stop) = (&jobs, &restarting, &stop);
-            let claim = scope.spawn(move || claim_restart(jobs, restarting, stop, RESTART_WAIT, &mut || waiting.send(()).unwrap()));
-            waits.recv().unwrap();
-            // One install ends; another is still running or queued.
-            jobs.lock().unwrap().remove("photocraft");
-            std::thread::sleep(Duration::from_millis(250));
-            assert!(!claim.is_finished() && !restarting.load(Ordering::SeqCst));
-            jobs.lock().unwrap().remove("filmcraft");
-            assert_eq!(claim.join().unwrap(), Ok(()));
-        });
-        assert!(restarting.load(Ordering::SeqCst));
-        assert!(waits.try_recv().is_err(), "it says it is waiting once");
-
-        // With nothing else running there is nothing to wait for.
-        let restarting = AtomicBool::new(false);
-        assert_eq!(claim_restart(&jobs, &restarting, &stop, RESTART_WAIT, &mut || panic!("it never waits")), Ok(()));
-        assert!(restarting.load(Ordering::SeqCst));
-    }
-
-    #[test]
-    fn a_cancelled_launcher_update_stops_waiting_and_claims_nothing() {
-        let jobs =
-            Mutex::new(HashMap::from([(LAUNCHER_ID.to_string(), Arc::new(Stop::default())), ("photocraft".to_string(), Arc::new(Stop::default()))]));
-        let restarting = AtomicBool::new(false);
-        let stop = Stop::default();
-        let (waiting, waits) = mpsc::channel();
-        std::thread::scope(|scope| {
-            let (jobs, restarting, stop) = (&jobs, &restarting, &stop);
-            let claim = scope.spawn(move || claim_restart(jobs, restarting, stop, RESTART_WAIT, &mut || waiting.send(()).unwrap()));
-            waits.recv().unwrap();
-            stop.cancel();
-            assert_eq!(claim.join().unwrap(), Err(CANCELLED.to_string()));
-        });
-        assert!(!restarting.load(Ordering::SeqCst));
+        let mut asked = github.0.lock().unwrap().clone();
+        asked.sort();
+        let mut expected: Vec<String> = SUITE.iter().map(|a| a.repo.to_string()).collect();
+        expected.sort();
+        assert_eq!(asked, expected, "every app once, and nothing else");
     }
 }

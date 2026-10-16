@@ -253,9 +253,9 @@ pub const SOCIAL: [(&str, &str); 5] = [
 /// The ArtCraft community on Discord.
 pub const DISCORD_URL: &str = "https://discord.gg/artcraft";
 
-/// ArtCraft Launcher itself, described like a Craft App so it can update itself with the same
-/// machinery (asset names `artcraft-launcher-<ver>-…`, bundle id `ai.storyteller.artcraft-launcher`,
-/// `ArtCraft Launcher.app`). Not part of [`SUITE`].
+/// ArtCraft Launcher itself, described like a Craft App (asset names `artcraft-launcher-<ver>-…`,
+/// bundle id `ai.storyteller.artcraft-launcher`, `ArtCraft Launcher.app`). Not part of [`SUITE`].
+/// Self-update is off in this build, so its repo is never asked about.
 pub const LAUNCHER: CraftApp = app(
     "artcraft-launcher",
     "ArtCraft Launcher",
@@ -266,8 +266,6 @@ pub const LAUNCHER: CraftApp = app(
     cinch_repo!("craft-launcher"),
 );
 
-/// The launcher's own repo, checked so it can say when a newer launcher is out.
-pub const LAUNCHER_REPO: &str = LAUNCHER.repo;
 /// The launcher's own asset stem.
 pub const LAUNCHER_ID: &str = "artcraft-launcher";
 
@@ -288,7 +286,6 @@ mod tests {
             assert_eq!(a.name.to_lowercase(), a.id);
         }
         assert_eq!(LAUNCHER.repo, format!("{CINCH_OWNER}/craft-launcher"));
-        assert_eq!(LAUNCHER_REPO, LAUNCHER.repo);
         assert_eq!(GITHUB_URL, format!("https://github.com/{CINCH_OWNER}"));
     }
 
