@@ -2,15 +2,14 @@
 //!
 //! [`NativeBackend`] runs every slow thing (HTTP, scanning disks, installers) on worker threads
 //! and reports back through [`Event`](artcraft_launcher_core::protocol::Event)s, so the UI never
-//! waits on it. Release information comes from a [`source::ReleaseSource`]: GitHub today, the
-//! ArtCraft catalog API later.
+//! waits on it. Release information comes from a [`source::ReleaseSource`]: GitHub, at the repos
+//! the catalog names.
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 pub mod backend;
 pub mod desktop_entry;
 pub mod detect;
-pub mod feed_throttle;
 pub mod http;
 pub mod install;
 pub mod login;

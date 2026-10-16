@@ -462,7 +462,7 @@ fn feed(mirror: &Path, base: &str) -> String {
         );
     }
     format!(
-        r#"{{"success":true,"release_info":{{"apps":{{{apps}}},"last_fetched":{}}},"app_renames":[],"repo_renames":[],"important_notices":{{"announcements":[],"alerts":[]}}}}"#,
+        r#"{{"success":true,"release_info":{{"apps":{{{apps}}},"last_fetched":{}}},"important_notices":{{"announcements":[],"alerts":[]}}}}"#,
         json_str(&now)
     )
 }
