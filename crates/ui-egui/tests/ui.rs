@@ -738,12 +738,46 @@ fn feed_announcements_and_alerts_show_until_dismissed() {
 }
 
 #[test]
-fn automatic_checks_run_every_five_minutes() {
+fn automatic_checks_run_every_twelve_hours() {
     use artcraft_launcher_ui_egui::settings::CheckEvery;
-    assert_eq!(Settings::default().check_every.seconds(), Some(300));
+    assert_eq!(Settings::default().check_every.seconds(), Some(12 * 3600));
     // Older saved choices still load, and mean "automatically" now.
-    assert_eq!(CheckEvery::Day.seconds(), Some(300));
+    assert_eq!(CheckEvery::Day.seconds(), Some(12 * 3600));
     assert_eq!(CheckEvery::Never.seconds(), None);
+}
+
+#[test]
+fn checks_once_at_startup_then_every_twelve_hours_and_on_request() {
+    let sent = Rc::new(RefCell::new(Vec::new()));
+    let clock = Rc::new(Cell::new(NOW));
+    let mut backend = Some(Fake { events: events(), sent: sent.clone(), manage: true, clock: clock.clone() });
+    let mut h = Harness::builder().with_size(egui::vec2(1180.0, 900.0)).build_ui_state(
+        move |ui, state: &mut Option<LauncherUi>| {
+            if state.is_none()
+                && let Some(b) = backend.take()
+            {
+                *state = Some(LauncherUi::new(ui.ctx(), Box::new(b), Settings { notify: false, ..Settings::default() }));
+            }
+            if let Some(l) = state.as_mut() {
+                l.logic(&ui.ctx().clone(), &mut NoHost);
+                l.ui(ui, &mut NoHost);
+            }
+        },
+        None,
+    );
+    let checks = |force: bool| sent.borrow().iter().filter(|c| **c == Command::CheckForUpdates { force }).count();
+    h.run_steps(10);
+    assert_eq!(checks(false), 1, "one check at startup");
+    clock.set(NOW + 12 * 3600 - 1);
+    h.run_steps(10);
+    assert_eq!(checks(false), 1, "nothing more within 12 hours of it");
+    clock.set(NOW + 12 * 3600);
+    h.run_steps(10);
+    assert_eq!(checks(false), 2, "again 12 hours later, once");
+    // "Check for updates" asks right away, whatever the schedule.
+    h.get_by_label("Check for updates").click();
+    h.run_steps(2);
+    assert_eq!(checks(true), 1);
 }
 
 #[test]

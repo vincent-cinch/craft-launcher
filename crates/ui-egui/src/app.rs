@@ -92,6 +92,9 @@ pub struct LauncherUi {
     pub(crate) toasts: Vec<Toast>,
     pub(crate) dialog: Option<Dialog>,
     started: bool,
+    /// When this session last asked for an automatic check (startup counts), so the schedule
+    /// never asks twice before the backend has answered.
+    check_sent_at: Option<i64>,
     applied_theme: Option<theme::ThemeChoice>,
     /// Fonts registered with `set_fonts` only exist from the next frame on; drawing with the named
     /// weights before then would abort.
@@ -148,6 +151,7 @@ impl LauncherUi {
             toasts: Vec::new(),
             dialog: None,
             started: false,
+            check_sent_at: None,
             applied_theme: None,
             fonts_ready: false,
             cjk_fonts,
@@ -215,11 +219,12 @@ impl LauncherUi {
             self.backend.send(Command::Configure(options.clone()));
             self.sent_options = Some(options);
         }
+        let now = self.backend.now();
         if !self.started {
             self.started = true;
             self.backend.send(Command::CheckForUpdates { force: false });
+            self.check_sent_at = Some(now);
         }
-        let now = self.backend.now();
         if self.last_detect == 0 {
             // The backend looks once at startup by itself.
             self.last_detect = now;
@@ -233,9 +238,10 @@ impl LauncherUi {
         }
         if let Some(every) = self.settings.check_every.seconds()
             && !self.checking
-            && self.settings.last_check.is_none_or(|t| now - t >= every)
+            && self.settings.last_check.max(self.check_sent_at).is_none_or(|t| now - t >= every)
         {
             self.backend.send(Command::CheckForUpdates { force: false });
+            self.check_sent_at = Some(now);
         }
         let mut changed = false;
         for event in self.backend.poll() {

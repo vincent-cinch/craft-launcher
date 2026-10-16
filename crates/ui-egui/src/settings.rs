@@ -49,6 +49,9 @@ impl SortKey {
     }
 }
 
+/// Automatic checks after the one at startup: every 12 hours.
+pub const AUTOMATIC_CHECK_EVERY: i64 = 12 * 60 * 60;
+
 /// How often to look for updates in the background.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CheckEvery {
@@ -70,11 +73,11 @@ impl CheckEvery {
         }
     }
 
-    /// How often to look. Checks ask ArtCraft's release feed (one cheap request; GitHub only as a
-    /// fallback), so automatic checks run every five minutes.
+    /// How often to look, after the check at startup. Each check asks GitHub once per app, so
+    /// automatic checks run every 12 hours; "Check for updates" still asks right away.
     pub fn seconds(self) -> Option<i64> {
         match self {
-            Self::Hour | Self::FourHours | Self::Day => Some(5 * 60),
+            Self::Hour | Self::FourHours | Self::Day => Some(AUTOMATIC_CHECK_EVERY),
             Self::Never => None,
         }
     }
