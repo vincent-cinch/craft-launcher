@@ -84,6 +84,16 @@ jobs:
           ./target/debug/examples/check_signature.exe check/app.msi
           if ($LASTEXITCODE -ne 0) { throw "the real $env:MSI_NAME was refused" }
 
+      # The same from cmd, which doesn't pass PowerShell 7's environment on to the launcher: closer
+      # to starting it from Explorer. PSModulePath is printed to show what it inherited.
+      - name: The publisher check accepts the real MSI (from cmd)
+        if: success() || failure()
+        shell: cmd
+        run: |
+          echo PSModulePath=%PSModulePath%
+          target\debug\examples\check_signature.exe check\app.msi
+          if errorlevel 1 exit /b 1
+
       # A flipped byte can land in unused space and change nothing, so try a few places until
       # Windows itself no longer calls the signature Valid, then require our check to refuse it.
       - name: The publisher check refuses a tampered copy
