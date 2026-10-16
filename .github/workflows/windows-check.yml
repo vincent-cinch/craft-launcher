@@ -1,0 +1,129 @@
+name: Windows check (Cinch)
+
+# Manual only (Actions > Windows check (Cinch) > Run workflow, or `gh workflow run`). No secrets;
+# the token can only read this repo. Tests the Windows build, then checks one app's real x64 MSI
+# from the Cinch fork with the launcher's own publisher check, makes sure a tampered copy and an
+# unsigned file are refused, and installs and removes the app silently.
+on:
+  workflow_dispatch:
+    inputs:
+      app:
+        description: Craft App whose x64 MSI is checked, installed and removed
+        type: choice
+        default: soundcraft
+        options: [photocraft, vectorcraft, filmcraft, lightcraft, pdfcraft, effectcraft, designcraft, wordcraft, deckcraft, gridcraft, cadcraft, soundcraft]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-check
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  RUST_VERSION: 1.99.1
+  APP: ${{ inputs.app }}
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Rust
+        run: |
+          rustup toolchain install $env:RUST_VERSION --profile minimal --component clippy
+          rustup default $env:RUST_VERSION
+          rustc --version
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace --locked
+
+      - name: Build the signature checker
+        run: cargo build --locked -p artcraft-launcher-native --example check_signature
+
+      # The owner comes from crates/core/src/catalog.rs, as in package.ps1. No API calls: the
+      # latest release's SHA256SUMS.txt names the MSI, and its line is the checksum to match.
+      - name: Download the app's x64 MSI from the Cinch fork
+        run: |
+          $catalog = Get-Content -Raw crates/core/src/catalog.rs
+          if ($catalog -notmatch 'macro_rules!\s*cinch_owner\s*\{\s*\(\)\s*=>\s*\{\s*"([A-Za-z0-9-]+)"') { throw 'no owner in catalog.rs' }
+          $base = "https://github.com/$($Matches[1])/$env:APP/releases/latest/download"
+          New-Item -ItemType Directory -Force check | Out-Null
+          Invoke-WebRequest "$base/SHA256SUMS.txt" -OutFile check/SHA256SUMS.txt
+          $hits = @(Get-Content check/SHA256SUMS.txt | Select-String -Pattern "^([0-9a-f]{64})\s+\*?($env:APP-[0-9][0-9A-Za-z.\-]*-windows-x64\.msi)$")
+          if ($hits.Count -ne 1) { throw "expected one x64 MSI in SHA256SUMS.txt, found $($hits.Count)" }
+          $sum = $hits[0].Matches[0].Groups[1].Value; $name = $hits[0].Matches[0].Groups[2].Value
+          Invoke-WebRequest "$base/$name" -OutFile "check/$name"
+          $got = (Get-FileHash -Algorithm SHA256 "check/$name").Hash.ToLowerInvariant()
+          if ($got -ne $sum) { throw "checksum mismatch for ${name}: $got, expected $sum" }
+          Copy-Item "check/$name" check/app.msi
+          "MSI_NAME=$name" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          Write-Output "$name matches SHA256SUMS.txt ($sum)"
+
+      - name: The publisher check accepts the real MSI
+        run: |
+          ./target/debug/examples/check_signature.exe check/app.msi
+          if ($LASTEXITCODE -ne 0) { throw "the real $env:MSI_NAME was refused" }
+
+      # A flipped byte can land in unused space and change nothing, so try a few places until
+      # Windows itself no longer calls the signature Valid, then require our check to refuse it.
+      - name: The publisher check refuses a tampered copy
+        run: |
+          $orig = [IO.File]::ReadAllBytes("$PWD/check/app.msi")
+          $found = $null
+          foreach ($frac in 0.5, 0.25, 0.75, 0.1, 0.9, 0.35, 0.65, 0.05, 0.95) {
+            $i = [int][Math]::Floor($orig.Length * $frac)
+            $bytes = [byte[]]$orig.Clone()
+            $bytes[$i] = $bytes[$i] -bxor 0xFF
+            [IO.File]::WriteAllBytes("$PWD/check/tampered.msi", $bytes)
+            $status = (Get-AuthenticodeSignature -LiteralPath check/tampered.msi).Status
+            Write-Output "byte $i of $($orig.Length) flipped: Windows says $status"
+            if ($status -ne 'Valid') { $found = $i; break }
+          }
+          if ($null -eq $found) { throw 'none of the tried offsets made Windows report the signature as anything but Valid, so the tamper test could not run' }
+          Write-Output "testing the copy with byte $found flipped"
+          $out = ./target/debug/examples/check_signature.exe check/tampered.msi
+          Write-Output $out
+          if ($LASTEXITCODE -ne 1 -or "$out" -notmatch "isn't valid") { throw 'a tampered MSI was not refused as invalid' }
+
+      - name: The publisher check refuses an unsigned file
+        run: |
+          Copy-Item target/debug/examples/check_signature.exe check/unsigned.exe
+          $out = ./target/debug/examples/check_signature.exe check/unsigned.exe
+          Write-Output $out
+          if ($LASTEXITCODE -ne 1 -or "$out" -notmatch "isn't signed") { throw 'an unsigned file was not refused' }
+
+      - name: Silent install
+        run: |
+          $p = Start-Process msiexec.exe -Wait -PassThru -ArgumentList '/i', "`"$PWD\check\app.msi`"", '/qn', '/norestart', '/l*v', "`"$PWD\check\install.log`""
+          if ($p.ExitCode -notin 0, 3010) { throw "msiexec /i failed with $($p.ExitCode)" }
+          $keys = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
+          $entry = @(Get-ItemProperty $keys -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -ieq $env:APP -and $_.Publisher -eq 'Learning Machines LLC' })
+          if ($entry.Count -ne 1) { throw "expected one installed $env:APP, found $($entry.Count)" }
+          Write-Output "installed $($entry[0].DisplayName) $($entry[0].DisplayVersion) at $($entry[0].InstallLocation) ($($entry[0].PSChildName))"
+          "PRODUCT_CODE=$($entry[0].PSChildName)" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
+      - name: Silent uninstall
+        run: |
+          $p = Start-Process msiexec.exe -Wait -PassThru -ArgumentList '/x', $env:PRODUCT_CODE, '/qn', '/norestart', '/l*v', "`"$PWD\check\uninstall.log`""
+          if ($p.ExitCode -notin 0, 3010) { throw "msiexec /x failed with $($p.ExitCode)" }
+          $keys = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
+          if (@(Get-ItemProperty $keys -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -eq $env:PRODUCT_CODE }).Count -ne 0) { throw "$env:APP is still installed" }
+          Write-Output "$env:APP removed"
+
+      - name: Installer logs
+        if: failure()
+        run: |
+          foreach ($log in 'check/install.log', 'check/uninstall.log') { if (Test-Path $log) { Write-Output "== $log"; Get-Content $log -Tail 150 } }
