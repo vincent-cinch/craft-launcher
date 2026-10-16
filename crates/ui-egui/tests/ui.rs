@@ -6,6 +6,7 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
+use artcraft_launcher_core::catalog::CINCH_OWNER;
 use artcraft_launcher_core::protocol::{
     Backend, CANCELLED, Capabilities, Command, Event, INSTALL_CANCELLED, JobPhase, LatestRelease, Origin, PausedDownload, Source,
 };
@@ -54,13 +55,13 @@ fn release(id: &str, v: &str, at: i64) -> Release {
         version: version::parse(v),
         name: format!("v{v}"),
         published_at: Some(at),
-        html_url: format!("https://github.com/storytold/{id}/releases/tag/v{v}"),
+        html_url: format!("https://github.com/{CINCH_OWNER}/{id}/releases/tag/v{v}"),
         notes: "## What's Changed\n* Faster things by @a in https://github.com/storytold/x/pull/1".into(),
         prerelease: false,
         assets: vec![Asset {
             name: name.clone(),
             size: 150 << 20,
-            url: format!("https://github.com/storytold/{id}/releases/download/v{v}/{name}"),
+            url: format!("https://github.com/{CINCH_OWNER}/{id}/releases/download/v{v}/{name}"),
             sha256: None,
         }],
     }
@@ -540,8 +541,8 @@ fn links_open_the_right_pages() {
     assert_eq!(click_opens(&mut h, "Discord").as_deref(), Some("https://discord.gg/artcraft"));
     // The footer's ArtCraft links and each card's own pages.
     let github = all_opened(&mut h, "GitHub");
-    assert!(github.contains(&"https://github.com/storytold".to_string()), "{github:?}");
-    assert!(github.contains(&"https://github.com/storytold/photocraft".to_string()), "{github:?}");
+    assert!(github.contains(&format!("https://github.com/{CINCH_OWNER}")), "{github:?}");
+    assert!(github.contains(&format!("https://github.com/{CINCH_OWNER}/photocraft")), "{github:?}");
     let sites = all_opened(&mut h, "Website");
     assert!(sites.contains(&"https://getartcraft.com".to_string()), "{sites:?}");
     assert!(sites.contains(&"https://getartcraft.com/apps/photocraft".to_string()), "{sites:?}");
@@ -554,7 +555,7 @@ fn links_open_the_right_pages() {
     // The … menu.
     h.get_all_by_label("…").next().unwrap().click();
     h.run_steps(3);
-    assert_eq!(click_opens(&mut h, "All releases").as_deref(), Some("https://github.com/storytold/photocraft/releases"));
+    assert_eq!(click_opens(&mut h, "All releases").as_deref(), Some(format!("https://github.com/{CINCH_OWNER}/photocraft/releases").as_str()));
 }
 
 #[test]

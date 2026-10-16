@@ -7,6 +7,25 @@
 
 use serde::{Deserialize, Serialize};
 
+/// The GitHub owner of every Craft App fork and of the launcher itself. The one place the owner
+/// is named: change it here to move every repo at once. A macro rather than a `const` so
+/// `concat!` can build the repo names below from it.
+macro_rules! cinch_owner {
+    () => {
+        "vincent-cinch"
+    };
+}
+
+/// `<owner>/<name>` under [`CINCH_OWNER`].
+macro_rules! cinch_repo {
+    ($name:literal) => {
+        concat!(cinch_owner!(), "/", $name)
+    };
+}
+
+/// The GitHub owner every app and the launcher are installed from.
+pub const CINCH_OWNER: &str = cinch_owner!();
+
 /// Which generation of the suite an app belongs to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum AppGroup {
@@ -104,7 +123,7 @@ pub const SUITE: [CraftApp; 12] = [
         "Adobe Photoshop",
         AppGroup::Classic,
         [[0x2f, 0x7b, 0xf5], [0x1a, 0x5b, 0xc4], [0x7f, 0xb0, 0xff]],
-        "storytold/photocraft",
+        cinch_repo!("photocraft"),
     ),
     app(
         "vectorcraft",
@@ -113,7 +132,7 @@ pub const SUITE: [CraftApp; 12] = [
         "Adobe Illustrator",
         AppGroup::Classic,
         [[0xe8, 0x57, 0x3f], [0xb8, 0x3a, 0x24], [0xff, 0x8a, 0x70]],
-        "storytold/vectorcraft",
+        cinch_repo!("vectorcraft"),
     ),
     app(
         "filmcraft",
@@ -122,7 +141,7 @@ pub const SUITE: [CraftApp; 12] = [
         "Adobe Premiere Pro",
         AppGroup::Classic,
         [[0x8b, 0x5c, 0xf6], [0x6a, 0x3f, 0xd6], [0xb6, 0x9c, 0xff]],
-        "storytold/filmcraft",
+        cinch_repo!("filmcraft"),
     ),
     app(
         "lightcraft",
@@ -131,7 +150,7 @@ pub const SUITE: [CraftApp; 12] = [
         "Adobe Lightroom",
         AppGroup::Classic,
         [[0xf2, 0xa5, 0x16], [0x8a, 0x58, 0x00], [0xff, 0xc1, 0x4d]],
-        "storytold/lightcraft",
+        cinch_repo!("lightcraft"),
     ),
     CraftApp {
         former_ids: &["printcraft"],
@@ -142,7 +161,7 @@ pub const SUITE: [CraftApp; 12] = [
             "Adobe Acrobat",
             AppGroup::Classic,
             [[0x12, 0xa5, 0x8a], [0x0a, 0x75, 0x63], [0x3f, 0xd6, 0xb8]],
-            "storytold/pdfcraft",
+            cinch_repo!("pdfcraft"),
         )
     },
     app(
@@ -152,7 +171,7 @@ pub const SUITE: [CraftApp; 12] = [
         "Adobe After Effects",
         AppGroup::Classic,
         [[0xe0, 0x36, 0x8f], [0xb0, 0x20, 0x6c], [0xff, 0x7a, 0xb8]],
-        "storytold/effectcraft",
+        cinch_repo!("effectcraft"),
     ),
     app(
         "designcraft",
@@ -161,7 +180,7 @@ pub const SUITE: [CraftApp; 12] = [
         "Adobe InDesign",
         AppGroup::Classic,
         [[0x7b, 0xb5, 0x1c], [0x45, 0x70, 0x08], [0xa6, 0xe0, 0x4a]],
-        "storytold/designcraft",
+        cinch_repo!("designcraft"),
     ),
     app(
         "wordcraft",
@@ -170,7 +189,7 @@ pub const SUITE: [CraftApp; 12] = [
         "Microsoft Word",
         AppGroup::New,
         [[0x3f, 0x5f, 0xe0], [0x2a, 0x44, 0xb8], [0x8e, 0xa2, 0xff]],
-        "storytold/wordcraft",
+        cinch_repo!("wordcraft"),
     ),
     app(
         "deckcraft",
@@ -179,7 +198,7 @@ pub const SUITE: [CraftApp; 12] = [
         "Microsoft PowerPoint",
         AppGroup::New,
         [[0xf0, 0x7a, 0x1e], [0xa8, 0x4f, 0x0a], [0xff, 0xa0, 0x60]],
-        "storytold/deckcraft",
+        cinch_repo!("deckcraft"),
     ),
     app(
         "gridcraft",
@@ -188,7 +207,7 @@ pub const SUITE: [CraftApp; 12] = [
         "Microsoft Excel",
         AppGroup::New,
         [[0x1f, 0x9d, 0x55], [0x12, 0x70, 0x3a], [0x4f, 0xd6, 0x8a]],
-        "storytold/gridcraft",
+        cinch_repo!("gridcraft"),
     ),
     app(
         "cadcraft",
@@ -197,7 +216,7 @@ pub const SUITE: [CraftApp; 12] = [
         "Autodesk AutoCAD",
         AppGroup::New,
         [[0x3e, 0xa6, 0xe8], [0x1a, 0x6f, 0xa8], [0x7c, 0xc8, 0xff]],
-        "storytold/cadcraft",
+        cinch_repo!("cadcraft"),
     ),
     app(
         "soundcraft",
@@ -206,7 +225,7 @@ pub const SUITE: [CraftApp; 12] = [
         "Avid Pro Tools",
         AppGroup::New,
         [[0x1f, 0xa5, 0xc9], [0x0e, 0x72, 0x90], [0x5f, 0xd0, 0xee]],
-        "storytold/soundcraft",
+        cinch_repo!("soundcraft"),
     ),
 ];
 
@@ -220,8 +239,8 @@ affiliated with, sponsored by or endorsed by any of these companies.";
 
 /// ArtCraft's website.
 pub const WEBSITE_URL: &str = "https://getartcraft.com";
-/// ArtCraft on GitHub: every Craft App's source.
-pub const GITHUB_URL: &str = "https://github.com/storytold";
+/// The Cinch forks on GitHub: every Craft App's releases.
+pub const GITHUB_URL: &str = concat!("https://github.com/", cinch_owner!());
 /// ArtCraft's social accounts: (service, URL). Shown as small icons, less prominent than Discord.
 pub const SOCIAL: [(&str, &str); 5] = [
     ("X", "https://x.com/get_artcraft"),
@@ -244,11 +263,11 @@ pub const LAUNCHER: CraftApp = app(
     "",
     AppGroup::New,
     [[0x0b, 0x0b, 0x0c], [0x0b, 0x0b, 0x0c], [0xf2, 0xf1, 0xee]],
-    "storytold/craft-launcher",
+    cinch_repo!("craft-launcher"),
 );
 
 /// The launcher's own repo, checked so it can say when a newer launcher is out.
-pub const LAUNCHER_REPO: &str = "storytold/craft-launcher";
+pub const LAUNCHER_REPO: &str = LAUNCHER.repo;
 /// The launcher's own asset stem.
 pub const LAUNCHER_ID: &str = "artcraft-launcher";
 
@@ -265,9 +284,12 @@ mod tests {
         ids.dedup();
         assert_eq!(ids.len(), SUITE.len());
         for a in &SUITE {
-            assert_eq!(a.repo, format!("storytold/{}", a.id));
+            assert_eq!(a.repo, format!("{CINCH_OWNER}/{}", a.id));
             assert_eq!(a.name.to_lowercase(), a.id);
         }
+        assert_eq!(LAUNCHER.repo, format!("{CINCH_OWNER}/craft-launcher"));
+        assert_eq!(LAUNCHER_REPO, LAUNCHER.repo);
+        assert_eq!(GITHUB_URL, format!("https://github.com/{CINCH_OWNER}"));
     }
 
     #[test]

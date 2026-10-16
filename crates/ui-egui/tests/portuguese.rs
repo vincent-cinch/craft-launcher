@@ -3,6 +3,7 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
+use artcraft_launcher_core::catalog::CINCH_OWNER;
 use artcraft_launcher_core::protocol::{Backend, Capabilities, Command, Event, JobPhase, LatestRelease, Origin, Source};
 use artcraft_launcher_core::release::{Asset, Release};
 use artcraft_launcher_core::status::InstallSource;
@@ -45,13 +46,13 @@ fn release(id: &str, v: &str, at: i64) -> Release {
         version: version::parse(v),
         name: format!("v{v}"),
         published_at: Some(at),
-        html_url: format!("https://github.com/storytold/{id}/releases/tag/v{v}"),
+        html_url: format!("https://github.com/{CINCH_OWNER}/{id}/releases/tag/v{v}"),
         notes: String::new(),
         prerelease: false,
         assets: vec![Asset {
             name: name.clone(),
             size: 150 << 20,
-            url: format!("https://github.com/storytold/{id}/releases/download/v{v}/{name}"),
+            url: format!("https://github.com/{CINCH_OWNER}/{id}/releases/download/v{v}/{name}"),
             sha256: None,
         }],
     }
