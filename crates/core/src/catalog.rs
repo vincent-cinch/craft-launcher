@@ -277,12 +277,19 @@ mod tests {
     }
 
     /// packaging/windows/package.ps1 reads the owner out of this file's `cinch_owner!` macro for
-    /// the MSI's links; keep the macro in the shape its pattern expects.
+    /// the MSI's links, with a pattern that allows any whitespace between the tokens. Read it the
+    /// same way here, with Unix and Windows line endings (Git on Windows checks out CRLF).
     #[test]
     fn the_windows_packaging_can_read_the_owner() {
+        let owner = |source: &str| -> Option<String> {
+            let tokens: String = source.split_whitespace().collect();
+            let rest = tokens.split_once("macro_rules!cinch_owner{()=>{\"")?.1;
+            Some(rest.split_once('"')?.0.to_string())
+        };
         let source = include_str!("catalog.rs");
-        let shape = format!("macro_rules! cinch_owner {{\n    () => {{\n        \"{CINCH_OWNER}\"");
-        assert!(source.contains(&shape), "package.ps1 can't find the owner");
+        for text in [source.replace("\r\n", "\n"), source.replace("\r\n", "\n").replace('\n', "\r\n")] {
+            assert_eq!(owner(&text).as_deref(), Some(CINCH_OWNER), "package.ps1 can't find the owner");
+        }
         assert!(CINCH_OWNER.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'));
     }
 
