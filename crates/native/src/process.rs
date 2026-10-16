@@ -54,11 +54,18 @@ pub fn run(program: &str, args: &[&str], timeout: Duration) -> Result<String, St
     run_env(program, args, &[], timeout)
 }
 
-/// [`run`], with `env` added to the helper's environment.
-pub fn run_env(program: &str, args: &[&str], env: &[(&str, &std::ffi::OsStr)], timeout: Duration) -> Result<String, String> {
-    let mut child = command(program)
+/// [`run`], with `env` changed in the helper's environment: `Some` sets a variable, `None`
+/// removes it.
+pub fn run_env(program: &str, args: &[&str], env: &[(&str, Option<&std::ffi::OsStr>)], timeout: Duration) -> Result<String, String> {
+    let mut cmd = command(program);
+    for (key, value) in env {
+        match value {
+            Some(v) => cmd.env(key, v),
+            None => cmd.env_remove(key),
+        };
+    }
+    let mut child = cmd
         .args(args)
-        .envs(env.iter().copied())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

@@ -139,31 +139,45 @@ fn rdns(dn: &str) -> Vec<(String, String)> {
 /// The check, as PowerShell runs it. The file comes in through [`FILE_VAR`], never through the
 /// command text, so no file name can change what runs. No double quotes, which Windows would
 /// mangle on the way to `-Command`.
+///
+/// The two modules it needs are loaded from Windows PowerShell's own folder (`$PSHOME`) by full
+/// path, and their cmdlets are called by module-qualified name. Started from PowerShell 7, the
+/// child would otherwise try PowerShell 7's copies through an inherited `PSModulePath`, which
+/// Windows PowerShell can't load (the first Windows check run failed that way).
 pub const SCRIPT: &str = "$ErrorActionPreference = 'Stop'; \
-$s = Get-AuthenticodeSignature -LiteralPath $env:ARTCRAFT_LAUNCHER_SIGNED_FILE; \
+Import-Module -Name ($PSHOME + '\\Modules\\Microsoft.PowerShell.Security\\Microsoft.PowerShell.Security.psd1'); \
+Import-Module -Name ($PSHOME + '\\Modules\\Microsoft.PowerShell.Utility\\Microsoft.PowerShell.Utility.psd1'); \
+$s = Microsoft.PowerShell.Security\\Get-AuthenticodeSignature -LiteralPath $env:ARTCRAFT_LAUNCHER_SIGNED_FILE; \
 $o = [ordered]@{ status = $s.Status.ToString(); message = [string]$s.StatusMessage; subject = $null; issuer = $null; chain = @() }; \
 $c = $s.SignerCertificate; \
 if ($c) { \
 $o.subject = $c.Subject; $o.issuer = $c.Issuer; \
-$x = New-Object System.Security.Cryptography.X509Certificates.X509Chain; \
+$x = Microsoft.PowerShell.Utility\\New-Object System.Security.Cryptography.X509Certificates.X509Chain; \
 $x.ChainPolicy.RevocationMode = 'NoCheck'; \
 $x.ChainPolicy.VerificationFlags = 'IgnoreNotTimeValid, IgnoreCtlNotTimeValid'; \
 [void]$x.Build($c); \
 $o.chain = @($x.ChainElements | ForEach-Object { $_.Certificate.Subject }) }; \
-ConvertTo-Json -InputObject $o -Compress";
+Microsoft.PowerShell.Utility\\ConvertTo-Json -InputObject $o -Compress";
 
 /// The environment variable [`SCRIPT`] reads the file's path from.
 pub const FILE_VAR: &str = "ARTCRAFT_LAUNCHER_SIGNED_FILE";
 
+/// Windows PowerShell 5.1, at its full path (never whatever `powershell` the PATH finds).
+#[cfg(windows)]
+fn powershell() -> String {
+    let root = std::env::var_os("SystemRoot").map_or_else(|| std::path::PathBuf::from(r"C:\Windows"), std::path::PathBuf::from);
+    root.join(r"System32\WindowsPowerShell\v1.0\powershell.exe").to_string_lossy().into_owned()
+}
+
 /// Checks `file` with Windows' own Authenticode verification, then the publisher rules.
 #[cfg(windows)]
 pub fn verify(file: &std::path::Path) -> Result<(), String> {
-    let root = std::env::var_os("SystemRoot").map_or_else(|| std::path::PathBuf::from(r"C:\Windows"), std::path::PathBuf::from);
-    let powershell = root.join(r"System32\WindowsPowerShell\v1.0\powershell.exe");
     let out = crate::process::run_env(
-        &powershell.to_string_lossy(),
+        &powershell(),
         &["-NoProfile", "-NonInteractive", "-Command", SCRIPT],
-        &[(FILE_VAR, file.as_os_str())],
+        // Without PSModulePath, Windows PowerShell builds its own default rather than inheriting
+        // PowerShell 7's (see SCRIPT).
+        &[(FILE_VAR, Some(file.as_os_str())), ("PSModulePath", None)],
         std::time::Duration::from_secs(120),
     )
     .map_err(|e| format!("couldn't check who signed the installer ({e}), so it wasn't installed"))?;
@@ -292,14 +306,48 @@ mod tests {
         let file = dir.path().join("photocraft-0.9.0-windows-x64.msi");
         std::fs::write(&file, b"not an installer").unwrap();
         let e = verify(&file).unwrap_err();
-        assert!(e.contains("wasn't installed"), "{e}");
+        // Refused because Windows looked at it, not because the check couldn't run.
+        assert!(!e.contains("couldn't check") && (e.contains("isn't signed") || e.contains("isn't valid")), "{e}");
+    }
+
+    /// The same, started the way a PowerShell 7 session would start it: an inherited
+    /// PSModulePath that leads to PowerShell 7's modules first.
+    #[cfg(windows)]
+    #[test]
+    fn the_check_runs_even_with_a_foreign_psmodulepath() {
+        let dir = tempfile::tempdir().unwrap();
+        let fake = dir.path().join("Modules");
+        let security = fake.join("Microsoft.PowerShell.Security");
+        std::fs::create_dir_all(&security).unwrap();
+        std::fs::write(security.join("Microsoft.PowerShell.Security.psd1"), "@{ ModuleVersion = '9.9.9'; RootModule = 'missing.dll' }").unwrap();
+        let file = dir.path().join("x.msi");
+        std::fs::write(&file, b"not an installer").unwrap();
+        // The fake module first, then whatever this process has.
+        let mut path = std::ffi::OsString::from(fake.as_os_str());
+        if let Some(inherited) = std::env::var_os("PSModulePath") {
+            path.push(";");
+            path.push(inherited);
+        }
+        // SCRIPT alone, with that PSModulePath kept (verify would remove it).
+        let e = crate::process::run_env(
+            &powershell(),
+            &["-NoProfile", "-NonInteractive", "-Command", SCRIPT],
+            &[(FILE_VAR, Some(file.as_os_str())), ("PSModulePath", Some(path.as_os_str()))],
+            std::time::Duration::from_secs(120),
+        )
+        .map(|out| parse(&out).map(|s| s.status));
+        assert!(matches!(e, Ok(Ok(ref s)) if s != "Valid"), "{e:?}");
     }
 
     #[test]
     fn the_script_takes_the_file_only_from_the_environment() {
         assert!(!SCRIPT.contains('"'), "Windows would mangle double quotes passed to -Command");
         assert!(SCRIPT.contains(&format!("$env:{FILE_VAR}")));
-        assert!(SCRIPT.contains("Get-AuthenticodeSignature -LiteralPath"));
+        assert!(SCRIPT.contains("Microsoft.PowerShell.Security\\Get-AuthenticodeSignature -LiteralPath"));
+        // Its modules come from Windows PowerShell's own folder, whatever PSModulePath says.
+        assert!(SCRIPT.contains("Import-Module -Name ($PSHOME + '\\Modules\\Microsoft.PowerShell.Security\\"));
+        assert!(SCRIPT.contains("Import-Module -Name ($PSHOME + '\\Modules\\Microsoft.PowerShell.Utility\\"));
+        assert!(!SCRIPT.contains("Join-Path"), "Join-Path lives in a third module");
         // Time checks are off only for the chain used to read names, never for validity.
         assert!(SCRIPT.contains("IgnoreNotTimeValid") && SCRIPT.contains("$s.Status.ToString()"));
     }
