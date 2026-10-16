@@ -282,6 +282,26 @@ fn no_window() -> egui::RawInput {
     egui::RawInput { focused: false, viewports: std::iter::once((egui::ViewportId::ROOT, viewport)).collect(), ..Default::default() }
 }
 
+/// On macOS, names the app that sends notifications: the launcher's own bundle id (the
+/// `CFBundleIdentifier` in packaging/macos/Info.plist.in). Runs once, before the first notification.
+///
+/// Without this, mac-notification-sys asks AppleScript for an app called "use_default" when the
+/// first notification goes out, and macOS answers with a "Where is use_default?" file chooser.
+/// Once `set_application` has been called, successfully or not, that lookup never runs again.
+/// When the id isn't a registered app (a development build outside the .app bundle), it fails and
+/// notifications stay off rather than appear to come from another app.
+#[cfg(target_os = "macos")]
+fn mac_notifications_ready() -> bool {
+    static READY: OnceLock<bool> = OnceLock::new();
+    *READY.get_or_init(|| match notify_rust::set_application(APP_ID) {
+        Ok(()) => true,
+        Err(e) => {
+            log::warn!("notifications are off: couldn't send them as {APP_ID} ({e})");
+            false
+        }
+    })
+}
+
 struct DesktopHost {
     tray: bool,
     quit: bool,
@@ -296,6 +316,10 @@ impl Host for DesktopHost {
         let (title, body) = (title.to_string(), body.to_string());
         // Some platforms block while the notification is delivered.
         std::thread::spawn(move || {
+            #[cfg(target_os = "macos")]
+            if !mac_notifications_ready() {
+                return;
+            }
             let mut n = notify_rust::Notification::new();
             n.summary(&title).body(&body).appname("ArtCraft Launcher");
             #[cfg(windows)]
@@ -610,6 +634,13 @@ mod tests {
     use eframe::wgpu::rwh::{AppKitDisplayHandle, WaylandDisplayHandle, WindowsDisplayHandle, XcbDisplayHandle, XlibDisplayHandle};
 
     use super::*;
+
+    #[test]
+    fn notifications_use_the_bundle_id_the_mac_app_ships_with() {
+        let plist = include_str!("../../../packaging/macos/Info.plist.in");
+        let declared = plist.split("<key>CFBundleIdentifier</key>").nth(1).and_then(|rest| rest.split("<string>").nth(1)?.split("</string>").next());
+        assert_eq!(declared, Some(APP_ID));
+    }
 
     const NOW: i64 = 1_791_500_000;
 
