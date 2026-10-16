@@ -171,7 +171,6 @@ impl LauncherUi {
 
     fn settings_dialog(&mut self, ui: &mut egui::Ui, host: &mut dyn Host) -> bool {
         let t = Tokens::get(ui.ctx());
-        // Wide enough for the community buttons and every social icon on one row.
         ui.set_width(520.0);
         Self::title(ui, Some(crate::icons::artcraft_mark()), tl!("Settings"), &format!("ArtCraft Launcher {}", env!("CARGO_PKG_VERSION")));
         let section = |ui: &mut egui::Ui, s: &str| {
@@ -275,23 +274,11 @@ impl LauncherUi {
         }
 
         section(ui, tl!("Community"));
-        ui.label(RichText::new(tl!("Questions, ideas and news from the ArtCraft team")).color(t.muted));
-        ui.add_space(6.0);
         ui.horizontal(|ui| {
-            use artcraft_launcher_core::catalog::{DISCORD_URL, GITHUB_URL, WEBSITE_URL};
-            if widgets::button(ui, tl!("Join the Discord"), Kind::Primary, 0.0).on_hover_text(DISCORD_URL).clicked() {
-                ui.ctx().open_url(egui::OpenUrl::new_tab(DISCORD_URL));
-            }
-            if widgets::button(ui, tl!("Website"), Kind::Secondary, 0.0).on_hover_text(WEBSITE_URL).clicked() {
-                ui.ctx().open_url(egui::OpenUrl::new_tab(WEBSITE_URL));
-            }
+            use artcraft_launcher_core::catalog::GITHUB_URL;
             if widgets::button(ui, tl!("GitHub"), Kind::Secondary, 0.0).on_hover_text(GITHUB_URL).clicked() {
                 ui.ctx().open_url(egui::OpenUrl::new_tab(GITHUB_URL));
             }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.spacing_mut().item_spacing.x = 4.0;
-                widgets::social_icons(ui, 16.0);
-            });
         });
 
         section(ui, tl!("Appearance"));

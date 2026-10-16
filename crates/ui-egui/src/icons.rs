@@ -34,18 +34,6 @@ pub fn artcraft_logo(dark_background: bool) -> ImageSource<'static> {
 /// The ArtCraft wordmark's width / height (its SVG view box: 1038.05 × 108).
 pub const ARTCRAFT_LOGO_ASPECT: f32 = 1038.05 / 108.0;
 
-/// A social service's logo (Simple Icons, white, for tinting), by its name in `catalog::SOCIAL`.
-pub fn social(service: &str) -> Option<ImageSource<'static>> {
-    Some(match service {
-        "X" => egui::include_image!("../../../assets/social/x.svg"),
-        "YouTube" => egui::include_image!("../../../assets/social/youtube.svg"),
-        "TikTok" => egui::include_image!("../../../assets/social/tiktok.svg"),
-        "Instagram" => egui::include_image!("../../../assets/social/instagram.svg"),
-        "LinkedIn" => egui::include_image!("../../../assets/social/linkedin.svg"),
-        _ => return None,
-    })
-}
-
 /// The ArtCraft "A" mark in blue, as supplied: the launcher's app icon and getartcraft.com's favicon.
 pub fn artcraft_mark() -> ImageSource<'static> {
     egui::include_image!("../../../docs/brand/artcraft-mark.svg")

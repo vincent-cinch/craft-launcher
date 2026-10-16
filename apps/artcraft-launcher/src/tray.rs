@@ -46,15 +46,13 @@ impl Tray {
     pub fn new(wake: impl Fn() + Send + Sync + Clone + 'static, on_quit: impl Fn() + Send + Sync + 'static) -> Result<Self, String> {
         let show = MenuItem::new(i18n::t("Show ArtCraft Launcher"), true, None);
         let check = MenuItem::new(i18n::t("Check for Updates"), true, None);
-        use artcraft_launcher_core::catalog::{DISCORD_URL, GITHUB_URL, WEBSITE_URL};
-        let website = MenuItem::new(i18n::t("Visit getartcraft.com"), true, None);
-        let github = MenuItem::new(i18n::t("ArtCraft on GitHub"), true, None);
-        let discord = MenuItem::new(i18n::t("Join the ArtCraft Discord"), true, None);
+        use artcraft_launcher_core::catalog::GITHUB_URL;
+        let github = MenuItem::new(i18n::t("GitHub"), true, None);
         let quit = MenuItem::new(i18n::t("Quit ArtCraft Launcher"), true, None);
         let menu = Menu::new();
-        menu.append_items(&[&show, &check, &PredefinedMenuItem::separator(), &website, &github, &discord, &PredefinedMenuItem::separator(), &quit])
+        menu.append_items(&[&show, &check, &PredefinedMenuItem::separator(), &github, &PredefinedMenuItem::separator(), &quit])
             .map_err(|e| e.to_string())?;
-        let links = [(website.id().clone(), WEBSITE_URL), (github.id().clone(), GITHUB_URL), (discord.id().clone(), DISCORD_URL)];
+        let links = [(github.id().clone(), GITHUB_URL)];
         let icon = TrayIconBuilder::new()
             .with_menu(Box::new(menu))
             .with_icon(load_icon()?)
@@ -94,14 +92,7 @@ impl Tray {
                 wake();
             }
         }));
-        let labels = vec![
-            (show, "Show ArtCraft Launcher"),
-            (check, "Check for Updates"),
-            (website, "Visit getartcraft.com"),
-            (github, "ArtCraft on GitHub"),
-            (discord, "Join the ArtCraft Discord"),
-            (quit, "Quit ArtCraft Launcher"),
-        ];
+        let labels = vec![(show, "Show ArtCraft Launcher"), (check, "Check for Updates"), (github, "GitHub"), (quit, "Quit ArtCraft Launcher")];
         Ok(Self { icon, show: show_id, check: check_id, quit: quit_id, rx, tooltip: String::new(), language: String::new(), labels })
     }
 

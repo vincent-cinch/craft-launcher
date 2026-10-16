@@ -205,7 +205,7 @@ fn grid_shows_every_status_and_installs_on_click() {
     h.get_by_label("Like Adobe Photoshop®");
     // The window has no title bar of its own here (the web build, and the tests).
     assert!(h.query_by_label("Close").is_none());
-    assert!(h.query_all_by_label_contains("Discord").count() >= 2); // header link and footer link
+    assert_eq!(h.query_all_by_label_contains("Discord").count(), 0, "no Discord links in this build");
     h.get_by_label_contains("Adobe, Photoshop, Illustrator");
     assert!(h.query_all_by_label("Coming soon").count() >= 1);
     h.get_by_label_contains("48 MB of 131 MB");
@@ -475,28 +475,29 @@ fn every_table_column_sorts_both_ways() {
 }
 
 #[test]
-fn settings_link_to_discord() {
+fn settings_link_to_github_only() {
     let (mut h, _) = harness(ViewMode::Grid, egui::Theme::Dark, true);
     h.run_steps(6);
     h.get_by_label("Settings").click();
     h.run_steps(4);
     snapshot(&mut h, "settings-dark");
-    h.get_by_label("Questions, ideas and news from the ArtCraft team");
-    // The header button and the one in Settings.
-    assert!(h.query_all_by_label_contains("Discord").count() >= 2);
+    h.get_by_label("Community");
+    assert!(h.query_by_label("Questions, ideas and news from the ArtCraft team").is_none());
+    assert_eq!(h.query_all_by_label_contains("Discord").count(), 0);
+    assert!(h.query_by_label("Join the Discord").is_none());
 }
 
 #[test]
-fn links_to_the_website_github_and_each_apps_pages() {
+fn links_to_github_and_each_apps_pages() {
     let (mut h, _) = harness(ViewMode::Grid, egui::Theme::Dark, true);
     h.run_steps(6);
-    // Footer: website, GitHub and Discord.
-    for label in ["Website", "GitHub", "Discord"] {
-        assert!(h.query_all_by_label(label).count() >= 1, "{label}");
-    }
-    // Cards: every app links to its repo; only the seven classic apps have a website (plus the footer's).
+    // Footer: GitHub only (no ArtCraft website or Discord in this build).
+    assert!(h.query_all_by_label("GitHub").count() >= 1);
+    assert_eq!(h.query_all_by_label_contains("Discord").count(), 0);
+    // Cards: every app links to its repo (plus the footer's GitHub); only the seven classic apps
+    // have a website, and the footer has none.
     let shown_cards = h.query_all_by_label("GitHub").count() - 1;
-    let shown_sites = h.query_all_by_label("Website").count() - 1;
+    let shown_sites = h.query_all_by_label("Website").count();
     assert!(shown_cards >= 7, "{shown_cards}");
     assert_eq!(shown_sites, 7, "only classic apps have website pages");
     // The table's … menu has the app's GitHub repo and, for a new app, no website yet.
@@ -538,20 +539,17 @@ fn all_opened(h: &mut Harness<'_, Option<LauncherUi>>, label: &str) -> Vec<Strin
 fn links_open_the_right_pages() {
     let (mut h, _) = harness(ViewMode::Grid, egui::Theme::Dark, true);
     h.run_steps(6);
-    assert_eq!(click_opens(&mut h, "Discord").as_deref(), Some("https://discord.gg/artcraft"));
-    // The footer's ArtCraft links and each card's own pages.
+    // The footer's GitHub link and each card's own pages.
     let github = all_opened(&mut h, "GitHub");
     assert!(github.contains(&format!("https://github.com/{CINCH_OWNER}")), "{github:?}");
     assert!(github.contains(&format!("https://github.com/{CINCH_OWNER}/photocraft")), "{github:?}");
     let sites = all_opened(&mut h, "Website");
-    assert!(sites.contains(&"https://getartcraft.com".to_string()), "{sites:?}");
     assert!(sites.contains(&"https://getartcraft.com/apps/photocraft".to_string()), "{sites:?}");
-    // Social icons in the footer.
-    assert_eq!(click_opens(&mut h, "X").as_deref(), Some("https://x.com/get_artcraft"));
-    assert_eq!(click_opens(&mut h, "YouTube").as_deref(), Some("https://www.youtube.com/@OfficialArtcraftStudios"));
-    assert_eq!(click_opens(&mut h, "TikTok").as_deref(), Some("https://www.tiktok.com/@artcraft.studios"));
-    assert_eq!(click_opens(&mut h, "Instagram").as_deref(), Some("https://www.instagram.com/officialartcraftstudios"));
-    assert_eq!(click_opens(&mut h, "LinkedIn").as_deref(), Some("https://www.linkedin.com/company/artcraft-ai"));
+    assert!(sites.iter().all(|s| s.starts_with("https://getartcraft.com/apps/")), "only the apps' own pages: {sites:?}");
+    // No social icons.
+    for label in ["X", "YouTube", "TikTok", "Instagram", "LinkedIn"] {
+        assert!(h.query_by_label(label).is_none(), "{label}");
+    }
     // The … menu.
     h.get_all_by_label("…").next().unwrap().click();
     h.run_steps(3);
@@ -911,7 +909,7 @@ fn custom_title_bar_has_window_buttons() {
 
 #[test]
 fn the_rate_limit_notice_never_runs_under_the_footer_links() {
-    for width in [720.0, 960.0, 1180.0] {
+    for width in [560.0, 720.0, 960.0, 1180.0] {
         let mut evs = events();
         evs.push(Event::CheckFinished { at: NOW - 180, source: Source::GitHubApi, rate_limited_until: Some(NOW + 1800) });
         let mut backend = Some(Fake { events: evs, sent: Rc::new(RefCell::new(Vec::new())), manage: true, clock: Rc::new(Cell::new(NOW)) });
@@ -936,15 +934,12 @@ fn the_rate_limit_notice_never_runs_under_the_footer_links() {
         let checked = h.get_by_label_contains("Checked ").rect();
         // Cut short in a narrow window, but enough of it left to read.
         assert!(notice.width() >= 120.0 && notice.right() <= width, "{width}: notice {notice:?}");
-        // Everything on the footer's right: the three links, the social icons and (when there's
-        // room) the platform.
-        let mut right = Vec::new();
-        for label in ["Website", "GitHub", "Discord", "X", "YouTube", "TikTok", "Instagram", "LinkedIn"] {
-            right.extend(h.query_all_by_label(label).map(|n| n.rect()).filter(|r| (r.center().y - notice.center().y).abs() < 12.0));
-        }
-        assert_eq!(right.len(), 8, "{width}: {right:?}");
+        // Everything on the footer's right: the GitHub link and (when there's room) the platform.
+        let mut right: Vec<_> =
+            h.query_all_by_label("GitHub").map(|n| n.rect()).filter(|r| (r.center().y - notice.center().y).abs() < 12.0).collect();
+        assert_eq!(right.len(), 1, "{width}: {right:?}");
         let platform = h.query_by_label_contains("Installing for").map(|n| n.rect());
-        assert_eq!(platform.is_some(), width > 720.0, "{width}: the platform label shows unless the window is narrow");
+        assert_eq!(platform.is_some(), width >= 720.0, "{width}: the platform label shows unless the window is narrow");
         right.extend(platform);
         for r in right {
             assert!(!r.intersects(notice), "{width}: notice {notice:?} overlaps {r:?}");

@@ -237,21 +237,8 @@ and Pro Tools are trademarks or registered trademarks of Avid Technology, Inc. A
 respective owners. These names are used only to describe what each Craft App is for; the Craft App Suite is independent and is not \
 affiliated with, sponsored by or endorsed by any of these companies.";
 
-/// ArtCraft's website.
-pub const WEBSITE_URL: &str = "https://getartcraft.com";
 /// The Cinch forks on GitHub: every Craft App's releases.
 pub const GITHUB_URL: &str = concat!("https://github.com/", cinch_owner!());
-/// ArtCraft's social accounts: (service, URL). Shown as small icons, less prominent than Discord.
-pub const SOCIAL: [(&str, &str); 5] = [
-    ("X", "https://x.com/get_artcraft"),
-    ("Instagram", "https://www.instagram.com/officialartcraftstudios"),
-    ("LinkedIn", "https://www.linkedin.com/company/artcraft-ai"),
-    ("YouTube", "https://www.youtube.com/@OfficialArtcraftStudios"),
-    ("TikTok", "https://www.tiktok.com/@artcraft.studios"),
-];
-
-/// The ArtCraft community on Discord.
-pub const DISCORD_URL: &str = "https://discord.gg/artcraft";
 
 /// ArtCraft Launcher itself, described like a Craft App (asset names `artcraft-launcher-<ver>-…`,
 /// bundle id `ai.storyteller.artcraft-launcher`, `ArtCraft Launcher.app`). Not part of [`SUITE`].

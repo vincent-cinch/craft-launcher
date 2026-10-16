@@ -99,10 +99,6 @@ impl LauncherUi {
                     self.check_now();
                 }
                 ui.add_space(6.0);
-                if widgets::nav_link(ui, tl!("Discord"), tl!("Join the ArtCraft community on Discord"), h, false).clicked() {
-                    ui.ctx().open_url(egui::OpenUrl::new_tab(artcraft_launcher_core::catalog::DISCORD_URL));
-                }
-                ui.add_space(6.0);
                 widgets::rule(ui, h);
                 ui.add_space(6.0);
                 // Right to left: Table, then Grid, so they read Grid · Table.
@@ -316,30 +312,23 @@ impl LauncherUi {
             Some(p) => fmt(tl!("Downloads for {platform}"), &[("platform", &p.label())]),
             None => tl!("No downloads for this system").into(),
         };
-        use artcraft_launcher_core::catalog::{DISCORD_URL, GITHUB_URL, SOCIAL, WEBSITE_URL};
-        let links = [(tl!("Discord"), DISCORD_URL), (tl!("GitHub"), GITHUB_URL), (tl!("Website"), WEBSITE_URL)];
-        let (icon, link_gap) = (13.0, 16.0);
-        // The links and icons on the right keep their size; the status on the left gets what is
-        // left and is cut short with "…", never drawn under them. A narrow window drops the
+        use artcraft_launcher_core::catalog::GITHUB_URL;
+        let links = [(tl!("GitHub"), GITHUB_URL)];
+        let link_gap = 16.0;
+        // The links on the right keep their size; the status on the left gets what is left and is
+        // cut short with "…", never drawn under them. A narrow window drops the
         // platform label first, so the status keeps room to be read.
         let spacing = ui.spacing().item_spacing.x;
         let links_w: f32 =
             links.iter().map(|(text, _)| widgets::hud_galley(ui, &format!("{text} ↗"), t.muted).size().x + link_gap).sum::<f32>() - link_gap;
-        let icons_w = SOCIAL.len() as f32 * (icon + 8.0);
         let platform_w = widgets::hud_galley(ui, &platform, t.faint).size().x + 16.0 + spacing;
-        let left_w = ui.available_width() - icons_w - 12.0 - links_w - 16.0 - 3.0 * spacing;
+        let left_w = ui.available_width() - links_w - 16.0 - 2.0 * spacing;
         let show_platform = left_w - platform_w >= FOOTER_MIN_STATUS_W;
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if show_platform {
                 widgets::hud(ui, &platform, t.faint);
                 ui.add_space(16.0);
             }
-            // Right to left, so this reads: Website · GitHub · Discord, then the social icons.
-            ui.scope(|ui| {
-                ui.spacing_mut().item_spacing.x = 0.0;
-                widgets::social_icons(ui, icon);
-            });
-            ui.add_space(12.0);
             ui.scope(|ui| {
                 ui.spacing_mut().item_spacing.x = link_gap;
                 for (text, url) in links {
