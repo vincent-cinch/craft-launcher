@@ -3,7 +3,8 @@
 //! Apps go where their platform keeps applications, installed the platform's own way:
 //!
 //! - macOS: the signed `.app` from the release DMG into `/Applications`.
-//! - Windows: the release MSI (Windows Installer) into `C:\Program Files\<App>`.
+//! - Windows: the release MSI (Windows Installer) into `C:\Program Files\<App>`, only once its
+//!   Authenticode signature is the Craft Apps publisher's (`authenticode.rs`).
 //! - Linux: the distro's own package (`.deb` through apt on the Debian family, `.rpm` through
 //!   dnf/zypper/rpm on the Fedora, Red Hat and SUSE families, read from `os-release`) with the
 //!   system's polkit password prompt; otherwise a Flatpak, otherwise an AppImage in
@@ -1042,8 +1043,11 @@ pub mod windows {
         }
     }
 
-    /// Runs an MSI with a progress window and no restart. Windows asks for permission itself.
+    /// Runs an MSI with a progress window and no restart, once its Authenticode signature is
+    /// shown to be the Craft Apps publisher's (the Windows counterpart of the macOS Team ID
+    /// check). Windows asks for permission itself.
     pub fn run_msi(msi: &Path, stop: &Stop, phase: &mut dyn FnMut(JobPhase)) -> Result<(), String> {
+        crate::authenticode::verify(msi)?;
         in_turn(stop, phase, JobPhase::Installing, || {
             let status = process::command(msiexec())
                 .arg("/i")
@@ -1351,6 +1355,14 @@ mod tests {
     #[cfg(target_os = "linux")]
     fn desktop_entry_is_ours(path: &Path) -> bool {
         crate::desktop_entry::is_ours(&std::fs::read_to_string(path).unwrap())
+    }
+
+    /// Apps install on Windows only from the MSI, the one format whose Authenticode signature is
+    /// checked before it runs. A new format needs its own check first.
+    #[cfg(windows)]
+    #[test]
+    fn windows_installs_apps_only_from_the_checked_msi() {
+        assert_eq!(available_kinds(), [PackageKind::Msi]);
     }
 
     #[test]

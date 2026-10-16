@@ -51,8 +51,14 @@ pub fn capture(program: &str, args: &[&str], timeout: Duration) -> Option<String
 /// Runs a helper and returns its standard output when it succeeds within `timeout`; otherwise
 /// the reason, in the helper's own words (its standard error) where it gave one.
 pub fn run(program: &str, args: &[&str], timeout: Duration) -> Result<String, String> {
+    run_env(program, args, &[], timeout)
+}
+
+/// [`run`], with `env` added to the helper's environment.
+pub fn run_env(program: &str, args: &[&str], env: &[(&str, &std::ffi::OsStr)], timeout: Duration) -> Result<String, String> {
     let mut child = command(program)
         .args(args)
+        .envs(env.iter().copied())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
