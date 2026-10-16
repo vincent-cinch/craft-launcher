@@ -115,6 +115,8 @@ jobs:
           $out = ./target/debug/examples/check_signature.exe check/tampered.msi
           Write-Output $out
           if ($LASTEXITCODE -ne 1 -or "$out" -notmatch "isn't valid") { throw 'a tampered MSI was not refused as invalid' }
+          # The refusal (exit code 1) was the expected result; the pwsh step otherwise ends with it.
+          exit 0
 
       - name: The publisher check refuses an unsigned file
         if: success() || failure()
@@ -123,6 +125,8 @@ jobs:
           $out = ./target/debug/examples/check_signature.exe check/unsigned.exe
           Write-Output $out
           if ($LASTEXITCODE -ne 1 -or "$out" -notmatch "isn't signed") { throw 'an unsigned file was not refused' }
+          # The refusal (exit code 1) was the expected result; the pwsh step otherwise ends with it.
+          exit 0
 
       - name: Silent install
         if: success() || failure()
