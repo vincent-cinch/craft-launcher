@@ -47,6 +47,11 @@ if (-not $Version) {
   }
 }
 if (-not $Version) { throw 'could not read [workspace.package] version from Cargo.toml' }
+# The GitHub owner lives in one place: the cinch_owner! macro in crates/core/src/catalog.rs.
+$Owner = $null
+$catalog = Get-Content -Raw (Join-Path $Root 'crates\core\src\catalog.rs')
+if ($catalog -match 'macro_rules!\s*cinch_owner\s*\{\s*\(\)\s*=>\s*\{\s*"([A-Za-z0-9-]+)"') { $Owner = $Matches[1] }
+if (-not $Owner) { throw 'could not read the GitHub owner (cinch_owner!) from crates/core/src/catalog.rs' }
 # MSI ProductVersion is numeric (major.minor.build); pre-release tags are dropped there.
 $MsiVersion = ($Version -split '-')[0]
 
@@ -178,7 +183,7 @@ Invoke-Native 'wix build' {
   wix build (Join-Path $PSScriptRoot "$Pkg.wxs") -arch $Arch `
     -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext `
     -culture en-US -loc (Join-Path $PSScriptRoot "$Pkg.en-us.wxl") `
-    -d "Version=$MsiVersion" -d "DisplayVersion=$Version" -d "BinDir=$Stage" -d "IconPath=$(Join-Path $Root "assets\app-icon\$Pkg.ico")" `
+    -d "Version=$MsiVersion" -d "DisplayVersion=$Version" -d "Owner=$Owner" -d "BinDir=$Stage" -d "IconPath=$(Join-Path $Root "assets\app-icon\$Pkg.ico")" `
     -d "BannerBmp=$Banner" -d "DialogBmp=$Dialog" `
     -o $Msi
 }

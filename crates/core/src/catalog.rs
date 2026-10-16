@@ -276,6 +276,16 @@ mod tests {
         assert_eq!(GITHUB_URL, format!("https://github.com/{CINCH_OWNER}"));
     }
 
+    /// packaging/windows/package.ps1 reads the owner out of this file's `cinch_owner!` macro for
+    /// the MSI's links; keep the macro in the shape its pattern expects.
+    #[test]
+    fn the_windows_packaging_can_read_the_owner() {
+        let source = include_str!("catalog.rs");
+        let shape = format!("macro_rules! cinch_owner {{\n    () => {{\n        \"{CINCH_OWNER}\"");
+        assert!(source.contains(&shape), "package.ps1 can't find the owner");
+        assert!(CINCH_OWNER.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'));
+    }
+
     #[test]
     fn every_inspiring_product_is_covered_by_the_trademark_notice() {
         for a in &SUITE {

@@ -6,7 +6,10 @@
 
     wix build artcraft-launcher.wxs -arch x64 -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext
       -culture en-US -loc artcraft-launcher.en-us.wxl -d Version=1.2.3 -d DisplayVersion=1.2.3-rc.1
-      -d BinDir=... -d IconPath=... -d BannerBmp=... -d DialogBmp=... -o out.msi
+      -d Owner=<github owner> -d BinDir=... -d IconPath=... -d BannerBmp=... -d DialogBmp=... -o out.msi
+
+  Owner is the GitHub owner of the launcher's repo; package.ps1 reads it from the cinch_owner!
+  macro in crates/core/src/catalog.rs, the one place it is named.
 
   Per-user install (no UAC prompt), by default into %LOCALAPPDATA%\Programs\ArtCraft Launcher, so
   the launcher can update itself without elevation, plus a Start Menu shortcut. The shortcut
@@ -44,9 +47,9 @@
     <!-- MSI caches this icon using its Id as the filename; keep the .exe extension (ICE50). -->
     <Icon Id="ArtCraftLauncherIcon.exe" SourceFile="$(var.IconPath)" />
     <Property Id="ARPPRODUCTICON" Value="ArtCraftLauncherIcon.exe" />
-    <Property Id="ARPURLINFOABOUT" Value="https://getartcraft.com/apps" />
-    <Property Id="ARPURLUPDATEINFO" Value="https://github.com/storytold/craft-launcher/releases" />
-    <Property Id="ARPHELPLINK" Value="https://discord.gg/artcraft" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/$(var.Owner)/craft-launcher" />
+    <Property Id="ARPURLUPDATEINFO" Value="https://github.com/$(var.Owner)/craft-launcher/releases" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/$(var.Owner)/craft-launcher" />
 
     <StandardDirectory Id="LocalAppDataFolder">
       <Directory Id="LocalProgramsFolder" Name="Programs">
