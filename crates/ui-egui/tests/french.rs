@@ -64,7 +64,7 @@ fn events() -> Vec<Event> {
     let mut ev = Vec::new();
     for (i, app) in SUITE.iter().enumerate() {
         let latest = LatestRelease::Found(release(app.id, "0.5.0", NOW - 40 * 86_400 - i as i64 * 600));
-        ev.push(Event::Latest { app: app.id.into(), latest, from: Origin::ArtCraftApi });
+        ev.push(Event::Latest { app: app.id.into(), latest, from: Origin::GitHub });
         let installed = matches!(app.id, "photocraft" | "lightcraft").then(|| Installed {
             version: version::parse(if app.id == "photocraft" { "0.4.1" } else { "0.5.0" }),
             source: InstallSource::MacApp,
@@ -119,7 +119,7 @@ fn french_ui_translates_labels_dates_and_messages() {
     h.get_by_label("Retouche d'images");
     h.get_by_label("Mettre à jour vers 0.5.0");
     h.get_by_label_contains("Vérification de la somme de contrôle…");
-    h.get_by_label_contains("Vérifié il y a 3 min · via ArtCraft API");
+    h.get_by_label_contains("Vérifié il y a 3 min · via versions stables Cinch sur GitHub");
     h.get_by_label("LightCraft mis à jour vers 0.5.0");
 
     let mut table = harness(ViewMode::Table);

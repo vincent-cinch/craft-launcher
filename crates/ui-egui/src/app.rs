@@ -564,25 +564,27 @@ impl LauncherUi {
         list.into_iter().map(|(_, e)| e.app.id).collect()
     }
 
-    /// "ArtCraft API", "GitHub" or "ArtCraft API and GitHub": the services behind the releases on
-    /// screen right now. `None` until something has loaded.
+    /// "Cinch stable GitHub releases" (or, in a development build, the local mirror, or both):
+    /// the services behind the releases on screen right now. `None` until something has loaded.
     pub(crate) fn sources_label(&self) -> Option<String> {
         use artcraft_launcher_core::protocol::Origin;
-        let mut api = false;
+        let mut mirror = false;
         let mut github = false;
         for e in &self.entries {
             if matches!(e.latest, Some(LatestRelease::Found(_) | LatestRelease::None)) {
                 match e.origin {
-                    Some(Origin::ArtCraftApi) => api = true,
+                    Some(Origin::LocalMirror) => mirror = true,
                     Some(Origin::GitHub) => github = true,
                     None => {}
                 }
             }
         }
-        match (api, github) {
-            (true, true) => Some(crate::i18n::fmt(tl!("{a} and {b}"), &[("a", Origin::ArtCraftApi.label()), ("b", Origin::GitHub.label())])),
-            (true, false) => Some(Origin::ArtCraftApi.label().to_string()),
-            (false, true) => Some(Origin::GitHub.label().to_string()),
+        // The local mirror only exists in development builds, so its name stays English.
+        let github_label = tl!("Cinch stable GitHub releases");
+        match (mirror, github) {
+            (true, true) => Some(crate::i18n::fmt(tl!("{a} and {b}"), &[("a", Origin::LocalMirror.label()), ("b", github_label)])),
+            (true, false) => Some(Origin::LocalMirror.label().to_string()),
+            (false, true) => Some(github_label.to_string()),
             (false, false) => None,
         }
     }
