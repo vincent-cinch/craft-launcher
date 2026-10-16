@@ -48,14 +48,20 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
       - name: Test
-        run: cargo test --workspace --locked
+        run: cargo test --workspace --locked --no-fail-fast
+
+      # The steps below run even when an earlier one failed (but not when the run is cancelled),
+      # so one run reports everything. Any failed step still fails the job: none of them use
+      # continue-on-error.
 
       - name: Build the signature checker
+        if: success() || failure()
         run: cargo build --locked -p artcraft-launcher-native --example check_signature
 
       # The owner comes from crates/core/src/catalog.rs, as in package.ps1. No API calls: the
       # latest release's SHA256SUMS.txt names the MSI, and its line is the checksum to match.
       - name: Download the app's x64 MSI from the Cinch fork
+        if: success() || failure()
         run: |
           $catalog = Get-Content -Raw crates/core/src/catalog.rs
           if ($catalog -notmatch 'macro_rules!\s*cinch_owner\s*\{\s*\(\)\s*=>\s*\{\s*"([A-Za-z0-9-]+)"') { throw 'no owner in catalog.rs' }
@@ -73,6 +79,7 @@ jobs:
           Write-Output "$name matches SHA256SUMS.txt ($sum)"
 
       - name: The publisher check accepts the real MSI
+        if: success() || failure()
         run: |
           ./target/debug/examples/check_signature.exe check/app.msi
           if ($LASTEXITCODE -ne 0) { throw "the real $env:MSI_NAME was refused" }
@@ -80,6 +87,7 @@ jobs:
       # A flipped byte can land in unused space and change nothing, so try a few places until
       # Windows itself no longer calls the signature Valid, then require our check to refuse it.
       - name: The publisher check refuses a tampered copy
+        if: success() || failure()
         run: |
           $orig = [IO.File]::ReadAllBytes("$PWD/check/app.msi")
           $found = $null
@@ -99,6 +107,7 @@ jobs:
           if ($LASTEXITCODE -ne 1 -or "$out" -notmatch "isn't valid") { throw 'a tampered MSI was not refused as invalid' }
 
       - name: The publisher check refuses an unsigned file
+        if: success() || failure()
         run: |
           Copy-Item target/debug/examples/check_signature.exe check/unsigned.exe
           $out = ./target/debug/examples/check_signature.exe check/unsigned.exe
@@ -106,6 +115,7 @@ jobs:
           if ($LASTEXITCODE -ne 1 -or "$out" -notmatch "isn't signed") { throw 'an unsigned file was not refused' }
 
       - name: Silent install
+        if: success() || failure()
         run: |
           $p = Start-Process msiexec.exe -Wait -PassThru -ArgumentList '/i', "`"$PWD\check\app.msi`"", '/qn', '/norestart', '/l*v', "`"$PWD\check\install.log`""
           if ($p.ExitCode -notin 0, 3010) { throw "msiexec /i failed with $($p.ExitCode)" }
@@ -116,6 +126,7 @@ jobs:
           "PRODUCT_CODE=$($entry[0].PSChildName)" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
 
       - name: Silent uninstall
+        if: success() || failure()
         run: |
           $p = Start-Process msiexec.exe -Wait -PassThru -ArgumentList '/x', $env:PRODUCT_CODE, '/qn', '/norestart', '/l*v', "`"$PWD\check\uninstall.log`""
           if ($p.ExitCode -notin 0, 3010) { throw "msiexec /x failed with $($p.ExitCode)" }
